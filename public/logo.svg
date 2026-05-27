@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" fill="none">
+  <defs>
+    <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+  <!-- Play triangle -->
+  <polygon points="12,10 12,50 44,30" fill="url(#logoGrad)" stroke="#059669" stroke-width="1.5" stroke-linejoin="round"/>
+  <!-- Wave line -->
+  <path d="M52 35 Q60 20 70 35 Q80 50 90 35 Q100 20 110 35 Q120 50 130 35 Q140 20 145 30" stroke="url(#logoGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Text -->
+  <text x="150" y="38" font-family="'Segoe UI',Arial,sans-serif" font-size="26" font-weight="700" fill="#34d399" letter-spacing="-0.5">Wave</text>
+  <text x="150" y="56" font-family="'Segoe UI',Arial,sans-serif" font-size="16" font-weight="600" fill="#a7f3d0" letter-spacing="2">DRAMA</text>
+</svg>
