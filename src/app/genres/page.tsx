@@ -1,4 +1,4 @@
-import { getGenreList } from '@/lib/api';
+import { getGenreList } from '@/lib/server-data';
 import GenreGrid from '@/components/GenreGrid';
 import Link from 'next/link';
 import { Tags } from 'lucide-react';

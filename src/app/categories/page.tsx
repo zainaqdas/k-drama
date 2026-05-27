@@ -1,4 +1,4 @@
-import { getCategories } from '@/lib/api';
+import { getCategories } from '@/lib/server-data';
 import Link from 'next/link';
 import { Layers } from 'lucide-react';
 

@@ -1,4 +1,4 @@
-import { getDramaList } from '@/lib/api';
+import { getDramaList } from '@/lib/server-data';
 import DramaCard from '@/components/DramaCard';
 import AlphabetNav from '@/components/AlphabetNav';
 import { BookOpen } from 'lucide-react';

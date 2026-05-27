@@ -1,4 +1,4 @@
-import { getGenrePage } from '@/lib/api';
+import { getGenrePage } from '@/lib/server-data';
 import DramaCard from '@/components/DramaCard';
 import Link from 'next/link';
 import { ChevronLeft, Tags, Package } from 'lucide-react';

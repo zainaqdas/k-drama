@@ -1,4 +1,4 @@
-import { getDramaDetail } from '@/lib/api';
+import { getDramaDetail } from '@/lib/server-data';
 import DramaDetailClient from './DramaDetailClient';
 
 export const dynamic = 'force-dynamic';

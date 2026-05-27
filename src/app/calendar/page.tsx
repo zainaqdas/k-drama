@@ -1,4 +1,4 @@
-import { getCalendar } from '@/lib/api';
+import { getCalendar } from '@/lib/server-data';
 import Link from 'next/link';
 import { Calendar, Clock } from 'lucide-react';
 

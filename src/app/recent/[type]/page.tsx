@@ -1,4 +1,4 @@
-import { getRecentlyAdded } from '@/lib/api';
+import { getRecentlyAdded } from '@/lib/server-data';
 import DramaCard from '@/components/DramaCard';
 import Link from 'next/link';
 import { Film, Tv, Monitor, Clock } from 'lucide-react';

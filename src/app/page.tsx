@@ -1,4 +1,4 @@
-import { getHomepage } from '@/lib/api';
+import { getHomepage } from '@/lib/server-data';
 import HeroSection from '@/components/HeroSection';
 import DramaCard from '@/components/DramaCard';
 import Link from 'next/link';

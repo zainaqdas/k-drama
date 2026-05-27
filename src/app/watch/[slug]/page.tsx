@@ -1,4 +1,4 @@
-import { getEpisodePage } from '@/lib/api';
+import { getEpisodePage } from '@/lib/server-data';
 import WatchClient from './WatchClient';
 
 export const dynamic = 'force-dynamic';
