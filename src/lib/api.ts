@@ -2,20 +2,30 @@
 
 const API_BASE = '';
 
-async function fetchJSON<T>(endpoint: string, options?: RequestInit): Promise<T> {
+async function fetchJSON<T>(endpoint: string, options?: RequestInit & { timeout?: number }): Promise<T> {
+  const timeout = options?.timeout ?? 10000;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
   const url = `${API_BASE}${endpoint}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`API error: ${res.status} ${res.statusText}${text ? ': ' + text.slice(0, 100) : ''}`);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`API error: ${res.status} ${res.statusText}${text ? ': ' + text.slice(0, 100) : ''}`);
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

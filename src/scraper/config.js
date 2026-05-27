@@ -7,5 +7,5 @@ export const WP_API = `${BASE_URL}/wp-json/wp/v2`;
 export const USER_AGENT =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-export const REQUEST_TIMEOUT = 30000;
+export const REQUEST_TIMEOUT = 8000; // 8s — must stay under Vercel free tier's 10s function timeout
 export const PORT = process.env.PORT || 3001;
