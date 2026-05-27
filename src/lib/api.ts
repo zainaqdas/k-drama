@@ -67,7 +67,7 @@ export interface EpisodePage {
 
 export interface VideoData {
   videoSources: { src: string; type: string }[];
-  iframes: { src: string }[];
+  iframes: { src: string; label?: string }[];
   videoHosts: string[];
   networkVideoUrls: string[];
   jsVariables: { [key: string]: string };

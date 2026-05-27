@@ -1,297 +1,154 @@
-import { BASE_URL, USER_AGENT } from './config.js';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+import { BASE_URL, USER_AGENT, REQUEST_TIMEOUT } from './config.js';
+import { scrapeEpisodePage } from './scraper.js';
 
 // ---------------------------------------------------------------------------
-// Puppeteer is optional — it may not be available on serverless platforms
-// like Vercel. We use a dynamic import so the module doesn't crash at load
-// time if puppeteer isn't installed.
-// ---------------------------------------------------------------------------
-async function getPuppeteer() {
-  try {
-    const mod = await import('puppeteer');
-    return mod.default;
-  } catch {
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Extract video sources from a page using Puppeteer.
+// Cheerio-based video resolution — no Puppeteer needed!
 //
-// Strategies:
-//   1. Look for <video> / <source> tags
-//   2. Look for <iframe> pointing to video hosts
-//   3. Decode common JS-obfuscated video URLs
-//   4. Inspect network requests for .m3u8 / .mp4
-//   5. Click server buttons to trigger iframe/video load
+// Dramacool episode pages have server buttons whose URLs point to third-party
+// video embed hosts (e.g. gomoplayer.com, etc.). These are the same URLs that
+// dramacool itself loads into iframes. We extract them and return them as
+// iframe sources — no headless browser required.
 // ---------------------------------------------------------------------------
+
+const http = axios.create({
+  timeout: REQUEST_TIMEOUT,
+  headers: { 'User-Agent': USER_AGENT },
+});
 
 /**
- * Scrape an episode page for video stream URLs.
+ * Given a list of server items from the episode page, resolve them into
+ * iframe embed URLs (and optionally direct video sources if the embed
+ * page is static enough).
  *
- * @param {string}  episodeSlug   e.g. "daughter-of-fortune-2026-episode-19"
- * @param {object}  [opts]
- * @param {number}  [opts.waitMs=8000]    Time to wait for JS to execute after page load
- * @param {number}  [opts.clickWaitMs=3000]  Time to wait after clicking a server button
- * @param {boolean} [opts.headless=true]  Run browser headless
- * @returns {Promise<object>} video sources and metadata
+ * @param {Array<{name:string, url:string}>} servers
+ * @returns {Promise<{iframes:Array<{src:string, label:string}>, videoSources:Array<{src:string, type:string}>}>}
+ */
+export async function resolveServerUrls(servers) {
+  const iframes = [];
+  const videoSources = [];
+
+  // First, add all server URLs as iframe sources (always works)
+  for (const server of servers) {
+    if (server.url) {
+      iframes.push({ src: server.url, label: server.name || 'Server' });
+    }
+  }
+
+  // Try to resolve embed pages in parallel (best-effort, may yield direct video URLs)
+  const resolutionPromises = servers
+    .filter((s) => s.url)
+    .map(async (server) => {
+      try {
+        const resolved = await tryResolveEmbed(server.url);
+        return { server, resolved };
+      } catch {
+        return null;
+      }
+    });
+
+  const results = await Promise.allSettled(resolutionPromises);
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) {
+      const { server, resolved } = result.value;
+      if (resolved.videoSources?.length) {
+        videoSources.push(
+          ...resolved.videoSources.map((s) => ({ ...s, label: server.name }))
+        );
+      }
+    }
+  }
+
+  return { iframes, videoSources };
+}
+
+/**
+ * Attempt to fetch an embed page and extract video sources from it.
+ * This is best-effort — many embed hosts are JS-rendered and won't
+ * have static video tags.
+ */
+async function tryResolveEmbed(embedUrl) {
+  const { data } = await http.get(embedUrl, {
+    timeout: 10000,
+    headers: {
+      'User-Agent': USER_AGENT,
+      Referer: BASE_URL + '/',
+    },
+  });
+
+  const $ = cheerio.load(data);
+  const sources = [];
+
+  // Look for <video> / <source> tags in the static HTML
+  $('video source, video').each((_, el) => {
+    const src = $(el).attr('src') || $(el).attr('data-src') || '';
+    const type = $(el).attr('type') || 'video/mp4';
+    if (src) sources.push({ src, type });
+  });
+
+  // Look for iframes inside the embed page (nested embeds)
+  const nestedIframes = [];
+  $('iframe').each((_, el) => {
+    const src = $(el).attr('src') || '';
+    if (src) nestedIframes.push(src);
+  });
+
+  // Look for common JS variable patterns
+  $('script').each((_, el) => {
+    const text = $(el).html() || '';
+    const patterns = [
+      /(?:videoUrl|video_link|file|src)\s*[=:]\s*['"]([^'"]+\.(?:m3u8|mp4))['"]/,
+      /(?:playerSrc|link)\s*[=:]\s*['"]([^'"]+)['"]/,
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        sources.push({ src: match[1], type: 'application/x-mpegURL' });
+      }
+    }
+  });
+
+  return { videoSources: sources, iframes: nestedIframes };
+}
+
+/**
+ * Legacy alias — resolves server embed URLs from an episode slug.
+ * Used by the /api/episode/:slug/video endpoint.
+ *
+ * @param {string} episodeSlug
+ * @param {object} [opts]  Ignored in this implementation (no Puppeteer timing needed)
+ * @returns {Promise<object>} Video sources and iframes
  */
 export async function scrapeVideoUrls(episodeSlug, opts = {}) {
-  const { waitMs = 8000, clickWaitMs = 3000, headless = true } = opts;
-  const url = `${BASE_URL}/${episodeSlug}/`;
+  const episodeData = await scrapeEpisodePage(episodeSlug);
 
-  const puppeteer = await getPuppeteer();
-  if (!puppeteer) {
-    return {
-      pageUrl: url,
-      note: 'Puppeteer is not available on this platform (e.g. Vercel serverless). Video extraction requires a Node.js environment with Chromium.',
-      videoSources: [], iframes: [], videoHosts: [], networkVideoUrls: [], serversClicked: [],
-    };
-  }
+  const url = `${BASE_URL}/${episodeSlug.replace(/^\/+/, '')}/`;
 
-  const browser = await puppeteer.launch({
-    headless,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-web-security',
-    ],
-  });
+  const resolved = await resolveServerUrls(episodeData.servers || []);
 
-  try {
-    const page = await browser.newPage();
-    await page.setUserAgent(USER_AGENT);
-    await page.setViewport({ width: 1366, height: 768 });
-
-    // Block images/fonts for speed – but NOT media (we want to capture video streams)
-    await page.setRequestInterception(true);
-    const networkLog = [];
-    page.on('request', (req) => {
-      const type = req.resourceType();
-      if (type === 'image' || type === 'font') {
-        req.abort();
-      } else {
-        req.continue();
-      }
-    });
-
-    // Capture network responses containing video URLs
-    page.on('response', (res) => {
-      const ct = (res.headers()['content-type'] || '').toLowerCase();
-      const url = res.url();
-      if (
-        url.includes('.m3u8') ||
-        url.includes('.mp4') ||
-        url.includes('.ts') ||
-        url.includes('videoplayback') ||
-        url.includes('manifest') ||
-        url.includes('master.m3u8') ||
-        ct.includes('video') ||
-        ct.includes('application/vnd.apple.mpegurl') ||
-        ct.includes('application/x-mpegurl') ||
-        ct.includes('octet-stream')
-      ) {
-        networkLog.push({ url, contentType: ct });
-      }
-    });
-
-    // Navigate to the episode page
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    await page.evaluate((ms) => new Promise((r) => setTimeout(r, ms)), waitMs);
-
-    // ---------------------------------------------------------------
-    // Strategy 1: Direct <video> / <source> elements
-    // ---------------------------------------------------------------
-    const videoSources = await page.evaluate(() => {
-      const sources = [];
-      document.querySelectorAll('video source, video').forEach((el) => {
-        const src = el.getAttribute('src') || el.currentSrc || '';
-        if (src) sources.push({ src, type: el.getAttribute('type') || 'video/mp4' });
-      });
-      return sources;
-    });
-
-    // ---------------------------------------------------------------
-    // Strategy 2: <iframe> embeds (most common pattern on these sites)
-    // ---------------------------------------------------------------
-    const iframes = await page.evaluate(() => {
-      const frames = [];
-      document.querySelectorAll('iframe').forEach((el) => {
-        frames.push({
-          src: el.getAttribute('src') || '',
-          id: el.id || '',
-          className: el.className || '',
-        });
-      });
-      return frames;
-    });
-
-    // ---------------------------------------------------------------
-    // Strategy 3: JS variables / embedded JSON
-    // ---------------------------------------------------------------
-    const jsVars = await page.evaluate(() => {
-      const vars = {};
-      if (window.videoUrl) vars.videoUrl = window.videoUrl;
-      if (window.video_link) vars.video_link = window.video_link;
-      if (window.playerData) vars.playerData = JSON.stringify(window.playerData);
-      if (window.ep_data) vars.ep_data = JSON.stringify(window.ep_data);
-      if (window.dramacool) vars.dramacool = JSON.stringify(window.dramacool);
-      document.querySelectorAll('script[type="application/json"]').forEach((el) => {
-        try {
-          const parsed = JSON.parse(el.textContent);
-          vars[`script_json_${el.id || 'unnamed'}`] = JSON.stringify(parsed);
-        } catch { /* ignore */ }
-      });
-      return vars;
-    });
-
-    // ---------------------------------------------------------------
-    // Strategy 4: Identify video hosts from iframe sources
-    // ---------------------------------------------------------------
-    const videoHosts = [];
-    for (const iframe of iframes) {
-      const src = iframe.src;
-      const hostMatch = src.match(/https?:\/\/([^/]+)/);
-      if (hostMatch) {
-        videoHosts.push({ host: hostMatch[1], embedUrl: src });
-      }
-    }
-
-    // ---------------------------------------------------------------
-    // Strategy 5: Decode JS obfuscation patterns
-    // ---------------------------------------------------------------
-    const obfuscatedData = await page.evaluate(() => {
-      const found = {};
-      document.querySelectorAll('script').forEach((el) => {
-        const text = el.textContent || '';
-        const atobMatch = text.match(/atob\(['"]([A-Za-z0-9+/=]{20,})['"]\)/);
-        if (atobMatch) {
-          try { found.atob_decoded = atob(atobMatch[1]); } catch { /* ignore */ }
-        }
-        const playerSrcMatch = text.match(/playerSrc\s*=\s*['"]([^'"]+)['"]/);
-        if (playerSrcMatch) found.playerSrc = playerSrcMatch[1];
-        const videoUrlMatch = text.match(/videoUrl\s*=\s*['"]([^'"]+)['"]/);
-        if (videoUrlMatch) found.videoUrlMatch = videoUrlMatch[1];
-        const linkMatch = text.match(/link\s*:\s*['"]([^'"]+)['"]/);
-        if (linkMatch) found.linkVar = linkMatch[1];
-      });
-      return found;
-    });
-
-    // ---------------------------------------------------------------
-    // Strategy 6: Click server buttons to trigger iframe/video load
-    // ---------------------------------------------------------------
-    const serversClicked = [];
-    const serverButtons = await page.$$(
-      '.server-list a, .server-option a, .watch-server a, .server-item a, [data-server]'
-    );
-    for (const btn of serverButtons.slice(0, 5)) {
+  return {
+    pageUrl: url,
+    title: episodeData.title || '',
+    videoSources: resolved.videoSources,
+    iframes: resolved.iframes,
+    videoHosts: resolved.iframes.map((f) => {
       try {
-        const text = await page.evaluate((el) => el.textContent.trim(), btn);
-        await btn.click();
-        serversClicked.push(text);
-
-        // Wait for new iframes or video elements to load
-        await page.evaluate((ms) => new Promise((r) => setTimeout(r, ms)), clickWaitMs);
-
-        // Try waiting for an iframe specifically
-        try {
-          await page.waitForSelector('iframe', { timeout: 2000 });
-        } catch { /* no new iframe appeared */ }
-
-        // Check for new video sources
-        const newSources = await page.evaluate(() => {
-          const s = [];
-          document.querySelectorAll('video source, video').forEach((el) => {
-            const src = el.getAttribute('src') || el.currentSrc || '';
-            if (src) s.push({ src, type: el.getAttribute('type') || 'video/mp4' });
-          });
-          return s;
-        });
-        if (newSources.length) videoSources.push(...newSources);
-
-        // Check for new iframes
-        const newIframes = await page.evaluate(() => {
-          return Array.from(document.querySelectorAll('iframe')).map((el) => ({
-            src: el.getAttribute('src') || '',
-            id: el.id || '',
-            className: el.className || '',
-          }));
-        });
-        iframes.push(...newIframes);
-      } catch { /* ignore click errors */ }
-    }
-
-    // ---------------------------------------------------------------
-    // Compile results
-    // ---------------------------------------------------------------
-    const result = {
-      pageUrl: url,
-      title: await page.title(),
-      videoSources: videoSources.filter((v) => v.src),
-      iframes: iframes.filter((f) => f.src),
-      videoHosts: [...new Map(videoHosts.map((v) => [v.embedUrl, v])).values()],
-      networkVideoUrls: [...new Map(networkLog.map((n) => [n.url, n])).values()],
-      jsVariables: Object.keys(jsVars).length ? jsVars : undefined,
-      obfuscatedData: Object.keys(obfuscatedData).length ? obfuscatedData : undefined,
-      serversClicked,
-    };
-
-    return result;
-  } finally {
-    await browser.close();
-  }
+        const host = new URL(f.src).hostname;
+        return host;
+      } catch {
+        return f.src;
+      }
+    }),
+    networkVideoUrls: [],
+    serversClicked: episodeData.servers?.map((s) => s.name) || [],
+    jsVariables: {},
+    obfuscatedData: {},
+    note: 'Video resolution uses server embed URLs (no headless browser). If videos don\'t play, try opening the server link directly.',
+  };
 }
 
 /**
- * Follow an iframe embed URL to extract the actual video source.
- * Useful for sites like Fembed, Mixdrop, Streamtape, etc.
+ * Legacy alias — resolved via cheerio.
  */
-export async function scrapeEmbedUrl(embedUrl) {
-  const puppeteer = await getPuppeteer();
-  if (!puppeteer) {
-    return { embedUrl, note: 'Puppeteer not available on this platform', videoSources: [], networkUrls: [] };
-  }
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  });
-
-  try {
-    const page = await browser.newPage();
-    await page.setUserAgent(USER_AGENT);
-
-    const networkLog = [];
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-      if (req.resourceType() === 'image' || req.resourceType() === 'font') {
-        req.abort();
-      } else {
-        req.continue();
-      }
-    });
-    page.on('response', (res) => {
-      const url = res.url();
-      if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('videoplayback')) {
-        networkLog.push({ url, type: res.resourceType() });
-      }
-    });
-
-    await page.goto(embedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-    await page.evaluate(() => new Promise((r) => setTimeout(r, 5000)));
-
-    const videoSources = await page.evaluate(() => {
-      const sources = [];
-      document.querySelectorAll('video source, video').forEach((el) => {
-        const src = el.getAttribute('src') || el.currentSrc || '';
-        if (src) sources.push({ src, type: el.getAttribute('type') || '' });
-      });
-      return sources;
-    });
-
-    return { embedUrl, videoSources, networkUrls: [...new Map(networkLog.map((n) => [n.url, n])).values()] };
-  } finally {
-    await browser.close();
-  }
-}

@@ -10,7 +10,6 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Tv,
   Server,
   ArrowLeft,
   ExternalLink,
@@ -25,7 +24,6 @@ export default function WatchClient({ slug }: Props) {
   const [episodeData, setEpisodeData] = useState<EpisodePage | null>(null);
   const [videoData, setVideoData] = useState<VideoData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [videoLoading, setVideoLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,21 +31,30 @@ export default function WatchClient({ slug }: Props) {
       try {
         setLoading(true);
         setError(null);
+
+        // Fetch episode data (servers, navigation) and video sources in parallel
         const [epData, vidData] = await Promise.all([
           getEpisodePage(slug),
-          getVideoUrls(slug, 10000, 4000).catch(() => null),
+          getVideoUrls(slug),
         ]);
+
         setEpisodeData(epData);
         setVideoData(vidData);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load episode');
       } finally {
         setLoading(false);
-        setVideoLoading(false);
       }
     }
     fetchAll();
   }, [slug]);
+
+  // Derive iframe sources from video data or episode servers
+  const iframeSources = videoData?.iframes?.length
+    ? videoData.iframes
+    : episodeData?.servers?.map((s) => ({ src: s.url, label: s.name })) || [];
+
+  const [selectedServer, setSelectedServer] = useState(0);
 
   if (loading) {
     return (
@@ -141,22 +148,53 @@ export default function WatchClient({ slug }: Props) {
 
       {/* Video Player */}
       <div className="mb-6">
-        {videoLoading ? (
-          <div className="aspect-video rounded-xl bg-surface flex items-center justify-center">
-            <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
-          </div>
-        ) : (
-          <VideoPlayer slug={slug} initialData={videoData} />
-        )}
+        <VideoPlayer
+          slug={slug}
+          initialData={videoData}
+          iframeSources={iframeSources}
+          selectedServer={selectedServer}
+          onSelectServer={setSelectedServer}
+        />
       </div>
 
-      {/* Server List */}
-      {episodeData.servers && episodeData.servers.length > 0 && (
+      {/* Server Selector */}
+      {iframeSources.length > 0 && (
         <div className="bg-surface rounded-xl border border-white/5 p-4 mb-6">
           <div className="flex items-center gap-2 mb-3">
             <Server className="w-4 h-4 text-emerald-400" />
             <span className="text-sm font-medium text-gray-200">Available Servers</span>
           </div>
+          <div className="flex flex-wrap gap-2">
+            {iframeSources.map((source, i) => (
+              <button
+                key={i}
+                onClick={() => setSelectedServer(i)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all border ${
+                  selectedServer === i
+                    ? 'bg-emerald-600 text-white border-emerald-500'
+                    : 'bg-surface-light text-gray-300 hover:text-emerald-400 border-white/5 hover:border-emerald-500/30'
+                }`}
+              >
+                {source.label || `Server ${i + 1}`}
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Videos are embedded from third-party hosts. If a server doesn&apos;t load, try a different one.
+          </p>
+        </div>
+      )}
+
+      {/* Fallback: Open in new tab links */}
+      {episodeData.servers && episodeData.servers.length > 0 && (
+        <div className="bg-surface rounded-xl border border-white/5 p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <ExternalLink className="w-4 h-4 text-emerald-400" />
+            <span className="text-sm font-medium text-gray-200">Open in New Tab</span>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">
+            If the embedded player doesn&apos;t work, open the stream directly:
+          </p>
           <div className="flex flex-wrap gap-2">
             {episodeData.servers.map((server, i) => (
               <a
@@ -164,7 +202,7 @@ export default function WatchClient({ slug }: Props) {
                 href={server.url || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-surface-light text-gray-300 rounded-lg hover:bg-emerald-500/20 hover:text-emerald-400 transition-all border border-white/5"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-surface-light text-gray-300 rounded-lg hover:bg-emerald-500/20 hover:text-emerald-400 transition-all border border-white/5"
               >
                 <ExternalLink className="w-3 h-3" />
                 {server.name}

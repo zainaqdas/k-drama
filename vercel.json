@@ -1,14 +1,5 @@
 {
-  "version": 2,
-  "buildCommand": "next build",
-  "installCommand": "npm install",
   "framework": "nextjs",
-  "functions": {
-    "src/app/api/episode/**/video/route.ts": {
-      "maxDuration": 60
-    },
-    "src/app/api/embed/route.ts": {
-      "maxDuration": 60
-    }
-  }
+  "buildCommand": "next build",
+  "outputDirectory": ".next"
 }
