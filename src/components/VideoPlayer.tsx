@@ -93,7 +93,6 @@ export default function VideoPlayer({
               className="w-full h-full"
               allowFullScreen
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
               onError={() => {
                 setEmbedError(true);
                 setLoading(false);
