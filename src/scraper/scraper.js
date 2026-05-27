@@ -365,14 +365,28 @@ export async function scrapeEpisodePage(episodeSlug) {
   const nextEp = $('a.next-episode, a.next').attr('href') || '';
 
   const servers = [];
-  $('.server-list a, .server-option a, .watch-server a, .server-item a').each((_, el) => {
+  // Server buttons: <li class="... Server ..." data-video="https://...">Name<span>Choose this server</span></li>
+  $('.anime_muti_link li[data-video]').each((_, el) => {
     const $el = $(el);
+    const name = $el.clone().children('span').remove().end().text().trim() || $el.text().trim();
     servers.push({
-      name: $el.text().trim(),
-      url: $el.attr('href') || '',
-      dataId: $el.attr('data-id') || $el.attr('data-server') || '',
+      name,
+      url: $el.attr('data-video') || '',
+      dataId: $el.attr('rel') || '',
     });
   });
+
+  // Fallback: extract embed URL directly from the iframe in the watch area
+  if (servers.length === 0) {
+    const iframeSrc = $('.watch_video iframe, .watch-iframe iframe, iframe[src*="embed"]').first().attr('src');
+    if (iframeSrc) {
+      servers.push({
+        name: 'Embed',
+        url: iframeSrc,
+        dataId: '',
+      });
+    }
+  }
 
   return {
     title,
