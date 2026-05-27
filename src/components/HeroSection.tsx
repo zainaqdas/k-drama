@@ -25,7 +25,10 @@ export default function HeroSection({ data }: HeroSectionProps) {
   }
 
   const hero = featured[0];
-  const heroSlug = hero.url.match(/\/drama-detail\/([^/]+)/)?.[1] || '';
+  // Extract slug from the last path segment
+  const heroSlug = hero.url.split('/').filter(Boolean).pop() || '';
+  const heroIsDramaDetail = hero.url.includes('/drama-detail/');
+  const heroLink = heroSlug && heroIsDramaDetail ? `/drama/${heroSlug}` : heroSlug ? `/watch/${heroSlug}` : null;
 
   return (
     <section className="relative overflow-hidden">
@@ -57,9 +60,9 @@ export default function HeroSection({ data }: HeroSectionProps) {
               Watch the latest episodes in HD with English subtitles. Stream your favorite Asian dramas anytime, anywhere.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
-              {heroSlug && (
+              {heroLink && (
                 <Link
-                  href={`/drama/${heroSlug}`}
+                  href={heroLink}
                   className="btn-primary inline-flex items-center gap-2 px-6 py-3 text-base"
                 >
                   <Play className="w-5 h-5 fill-white" />
@@ -106,11 +109,14 @@ export default function HeroSection({ data }: HeroSectionProps) {
             </div>
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
               {featured.slice(1).map((item, i) => {
-                const s = item.url.match(/\/drama-detail\/([^/]+)/)?.[1] || '';
+                const s = item.url.split('/').filter(Boolean).pop() || '';
+                const isDd = item.url.includes('/drama-detail/');
+                const link = s && isDd ? `/drama/${s}` : s ? `/watch/${s}` : null;
+                if (!link) return null;
                 return (
                   <Link
                     key={i}
-                    href={s ? `/drama/${s}` : item.url}
+                    href={link}
                     className="shrink-0 w-32 group"
                   >
                     <div className="aspect-[2/3] rounded-lg overflow-hidden bg-surface-light border border-white/5">

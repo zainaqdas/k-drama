@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Play, Clock } from 'lucide-react';
 import type { MediaItem } from '@/lib/api';
-import { extractSlug } from '@/lib/api';
+import { extractEpisodeSlug } from '@/lib/api';
 
 interface DramaCardProps {
   item: MediaItem;
@@ -12,10 +12,13 @@ interface DramaCardProps {
 
 export default function DramaCard({ item, index = 0 }: DramaCardProps) {
   const delayClass = index < 6 ? `animate-fade-in-d${Math.min(index + 1, 6)}` : '';
-  const slug = extractSlug(item.url);
+  const slug = extractEpisodeSlug(item.url);
 
-  // Use the drama-detail page if we can extract a slug, otherwise use the raw URL
-  const detailUrl = slug ? `/drama/${slug}` : item.url;
+  // Build internal URL: episode URLs → /watch/{slug}, drama-detail URLs → /drama/{slug}
+  const isDramaDetail = item.url.includes('/drama-detail/');
+  const detailUrl = slug && isDramaDetail ? `/drama/${slug}` : slug ? `/watch/${slug}` : null;
+
+  if (!detailUrl) return null;
 
   return (
     <Link
